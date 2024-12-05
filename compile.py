@@ -22,32 +22,37 @@ def print_ascii_art():
                      Made by Julian
     """)
 
-def run_command(command, cwd=None, capture_output=False, verbose=True, check=True):
+def run_command(command, cwd=None, verbose=True, check=True):
     if verbose:
         print(f"Running command: {command}")
     try:
-        result = subprocess.run(
+        process = subprocess.Popen(
             command,
             cwd=cwd,
             shell=True,
-            check=check,
-            stdout=subprocess.PIPE if capture_output else None,
-            stderr=subprocess.STDOUT,  # Combine stderr with stdout
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             text=True
         )
-        if capture_output and result.stdout:
-            print(result.stdout)
-        return result.returncode, result.stdout or '', ''
+        stdout = ''
+        while True:
+            line = process.stdout.readline()
+            if not line:
+                break
+            stdout += line
+            if verbose:
+                print(line, end='')  # Print each line as it is received
+        returncode = process.wait()
+        if returncode != 0 and check:
+            print(f"Command '{command}' failed with return code {returncode}.")
+            sys.exit(1)
+        return returncode, stdout, ''
     except subprocess.CalledProcessError as e:
-        output = e.stdout or ''
-        if capture_output and output:
-            print(f"Error executing: {command}\n{output}")
-        else:
-            print(f"Error executing: {command}")
         if check:
+            print(f"Error executing: {command}")
             sys.exit(1)
         else:
-            return e.returncode, output, ''
+            return e.returncode, e.output, ''
 
 def install_python_packages(verbose=False):
     required_packages = ['PyGithub', 'requests']
@@ -56,7 +61,7 @@ def install_python_packages(verbose=False):
             __import__(package)
         except ImportError:
             print(f"Installing missing Python package: {package}")
-            run_command(f"{sys.executable} -m pip install {package}", capture_output=False, verbose=verbose)
+            run_command(f"{sys.executable} -m pip install {package}", verbose=verbose)
 
 def install_with_chocolatey(package, verbose=False):
     try:
@@ -74,12 +79,12 @@ def install_with_chocolatey(package, verbose=False):
         sys.exit(1)
 
     print(f"Installing {package} with Chocolatey...")
-    run_command(f"choco install {package} -y", capture_output=False, verbose=verbose)
+    run_command(f"choco install {package} -y", verbose=verbose)
 
 def install_with_apt(package, verbose=False):
     try:
-        run_command("sudo apt-get update", capture_output=False, verbose=verbose)
-        run_command(f"sudo apt-get install -y {package}", capture_output=False, verbose=verbose)
+        run_command("sudo apt-get update", verbose=verbose)
+        run_command(f"sudo apt-get install -y {package}", verbose=verbose)
     except:
         print(f"Error installing {package} with apt. Please install {package} manually.")
         sys.exit(1)
@@ -100,7 +105,7 @@ def install_with_homebrew(package, verbose=False):
         sys.exit(1)
 
     print(f"Installing {package} with Homebrew...")
-    run_command(f"brew install {package}", capture_output=False, verbose=verbose)
+    run_command(f"brew install {package}", verbose=verbose)
 
 def check_and_install_git(verbose=False):
     try:
@@ -127,17 +132,17 @@ def check_and_install_gh(verbose=False):
         run_command("gh --version", verbose=verbose)
         print("GitHub CLI (gh) is installed.")
         # Check if gh is authenticated
-        _, auth_status, _ = run_command("gh auth status", capture_output=True, verbose=verbose)
+        _, auth_status, _ = run_command("gh auth status", verbose=verbose)
         if "You are not logged into any GitHub hosts" in auth_status:
             print("GitHub CLI is not authenticated. Please authenticate.")
-            run_command("gh auth login", capture_output=False, verbose=verbose)
-            run_command("gh auth setup-git", capture_output=False, verbose=verbose)
+            run_command("gh auth login", verbose=verbose)
+            run_command("gh auth setup-git", verbose=verbose)
     except:
         print("GitHub CLI (gh) is not installed.")
         install_gh(verbose=verbose)
         print("Please authenticate GitHub CLI.")
-        run_command("gh auth login", capture_output=False, verbose=verbose)
-        run_command("gh auth setup-git", capture_output=False, verbose=verbose)
+        run_command("gh auth login", verbose=verbose)
+        run_command("gh auth setup-git", verbose=verbose)
 
 def install_gh(verbose=False):
     current_os = platform.system()
@@ -179,20 +184,20 @@ def upload_project(repo_name, github_token, verbose=False):
     # Initialize Git repository if not already done
     if not os.path.isdir(".git"):
         print("Initializing Git repository...")
-        run_command("git init", capture_output=False, verbose=verbose)
+        run_command("git init", verbose=verbose)
 
     # Set remote 'origin' to the correct URL
     github_username = get_github_username(github_token)
     remote_url = f"https://github.com/{github_username}/{repo_name}.git"
     print(f"Setting remote 'origin' to {remote_url}")
-    run_command("git remote remove origin", capture_output=False, verbose=verbose, check=False)
-    run_command(f"git remote add origin {remote_url}", capture_output=False, verbose=verbose)
+    run_command("git remote remove origin", verbose=verbose, check=False)
+    run_command(f"git remote add origin {remote_url}", verbose=verbose)
 
     # Add files and push
     print("Adding files to Git...")
-    run_command("git add .", capture_output=False, verbose=verbose)
+    run_command("git add .", verbose=verbose)
     commit_message = "Initial commit"
-    returncode, stdout, _ = run_command(f'git commit -m "{commit_message}"', capture_output=True, verbose=verbose, check=False)
+    returncode, stdout, _ = run_command(f'git commit -m "{commit_message}"', verbose=verbose, check=False)
     commit_output = stdout.lower() if stdout else ''
     if returncode != 0:
         if "nothing to commit" in commit_output or "working tree clean" in commit_output:
@@ -204,8 +209,8 @@ def upload_project(repo_name, github_token, verbose=False):
         print("Commit created.")
 
     print("Pushing files to GitHub...")
-    run_command("git branch -M main", capture_output=False, verbose=verbose)
-    run_command("git push -u origin main -f", capture_output=False, verbose=verbose)
+    run_command("git branch -M main", verbose=verbose)
+    run_command("git push -u origin main -f", verbose=verbose)
     print(f"Project successfully uploaded to repository '{repo_name}'.")
 
 def get_github_username(github_token):
@@ -235,9 +240,9 @@ def add_github_actions_workflow(workflow_content, verbose=False):
     print("GitHub Actions workflow file successfully created locally.")
 
     # Add the workflow directory to git and push
-    run_command(f"git add {workflow_dir}", capture_output=False, verbose=verbose)
+    run_command(f"git add {workflow_dir}", verbose=verbose)
     commit_message = "Update GitHub Actions workflow for iOS build"
-    returncode, stdout, _ = run_command(f'git commit -m "{commit_message}"', capture_output=True, verbose=verbose, check=False)
+    returncode, stdout, _ = run_command(f'git commit -m "{commit_message}"', verbose=verbose, check=False)
     commit_output = stdout.lower() if stdout else ''
     if returncode != 0:
         if "nothing to commit" in commit_output or "working tree clean" in commit_output:
@@ -249,7 +254,7 @@ def add_github_actions_workflow(workflow_content, verbose=False):
         print("Workflow commit created.")
 
     print("Pushing workflow to GitHub...")
-    run_command("git push", capture_output=False, verbose=verbose)
+    run_command("git push", verbose=verbose)
     print("GitHub Actions workflow file successfully pushed to repository.")
 
     # Wait for GitHub to recognize the new workflow
@@ -452,6 +457,26 @@ def check_and_install_dependencies(verbose=False):
     check_and_install_gh(verbose=verbose)
     install_python_packages(verbose=verbose)
 
+def delete_old_workflow_runs(repo, github_token, verbose=False):
+    from github import Github
+
+    print("Deleting old workflow runs...")
+    g = Github(github_token)
+    user = g.get_user()
+    repository = g.get_repo(f"{user.login}/{repo.name}")
+    workflows = repository.get_workflows()
+
+    for workflow in workflows:
+        runs = workflow.get_runs()
+        for run in runs:
+            try:
+                run.delete()
+                if verbose:
+                    print(f"Deleted workflow run ID {run.id} for workflow '{workflow.name}'.")
+            except Exception as e:
+                print(f"Failed to delete workflow run ID {run.id}: {e}")
+    print("All old workflow runs have been deleted.")
+
 def main():
     print_ascii_art()
     parser = argparse.ArgumentParser(
@@ -553,6 +578,7 @@ def main():
             repo = g.get_repo(f"{user.login}/{repo_name}")
             print(f"Repository '{repo_name}' found.")
             set_workflow_permissions(repo_name, github_token, verbose=args.verbose)
+            delete_old_workflow_runs(repo, github_token, verbose=args.verbose)
         except GithubException:
             print(f"Repository '{repo_name}' was not found. Please ensure the name is correct.")
             sys.exit(1)
