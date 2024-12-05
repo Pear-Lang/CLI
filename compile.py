@@ -32,12 +32,12 @@ def run_command(command, cwd=None, capture_output=True, verbose=False, check=Tru
             stderr=subprocess.PIPE if capture_output else None,
             text=True
         )
-        stdout = result.stdout if capture_output else None
-        stderr = result.stderr if capture_output else None
+        stdout = result.stdout if capture_output else ''
+        stderr = result.stderr if capture_output else ''
         return result.returncode, stdout, stderr
     except subprocess.CalledProcessError as e:
-        stdout = e.stdout if capture_output else None
-        stderr = e.stderr if capture_output else None
+        stdout = e.stdout if capture_output else ''
+        stderr = e.stderr if capture_output else ''
         if capture_output:
             print(f"Error executing: {command}\n{stderr}")
         else:
@@ -179,15 +179,12 @@ def upload_project(repo_name, github_token, verbose=False):
         print("Initializing Git repository...")
         run_command("git init", capture_output=False, verbose=verbose)
 
-    # Set remote 'origin' if not already set
-    _, remotes, _ = run_command("git remote", capture_output=True, verbose=verbose)
-    if "origin" not in remotes:
-        github_username = get_github_username(github_token)
-        remote_url = f"https://github.com/{github_username}/{repo_name}.git"
-        print(f"Setting remote 'origin' to {remote_url}")
-        run_command(f"git remote add origin {remote_url}", capture_output=False, verbose=verbose)
-    else:
-        print("Remote 'origin' is already set.")
+    # Set remote 'origin' to the correct URL
+    github_username = get_github_username(github_token)
+    remote_url = f"https://github.com/{github_username}/{repo_name}.git"
+    print(f"Setting remote 'origin' to {remote_url}")
+    run_command("git remote remove origin", capture_output=False, verbose=verbose, check=False)
+    run_command(f"git remote add origin {remote_url}", capture_output=False, verbose=verbose)
 
     # Add files and push
     print("Adding files to Git...")
@@ -195,7 +192,7 @@ def upload_project(repo_name, github_token, verbose=False):
     commit_message = "Initial commit"
     returncode, stdout, stderr = run_command(f'git commit -m "{commit_message}"', capture_output=True, verbose=verbose, check=False)
     if returncode != 0:
-        if "nothing to commit" in stderr.lower():
+        if stderr and "nothing to commit" in stderr.lower():
             print("Nothing to commit. Skipping commit step.")
         else:
             print(f"Error during git commit: {stderr}")
@@ -248,7 +245,7 @@ def trigger_build(repo_name, github_token, verbose=False):
     run_command(f"git add {dummy_file}", capture_output=False, verbose=verbose)
     returncode, stdout, stderr = run_command('git commit -m "Trigger GitHub Actions build"', capture_output=True, verbose=verbose, check=False)
     if returncode != 0:
-        if "nothing to commit" in stderr.lower():
+        if stderr and "nothing to commit" in stderr.lower():
             print("Nothing to commit. Skipping commit step.")
         else:
             print(f"Error during git commit: {stderr}")
