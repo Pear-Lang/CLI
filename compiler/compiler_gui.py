@@ -34,49 +34,69 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setWindowTitle("Flutter iOS Build Automation")
         self.resize(1000, 700)
         
-        # Apply a dark stylesheet for a cooler design
+        # Updated stylesheet for a more polished design
         self.setStyleSheet("""
             QMainWindow {
-                background-color: #2b2b2b;
-                color: #ffffff;
+                background-color: #1e1e1e;
             }
-            QLabel, QCheckBox, QRadioButton, QLineEdit, QSpinBox, QComboBox, QPushButton, QGroupBox, QTabWidget, QTextEdit, QProgressBar {
-                color: #eeeeee;
+            QLabel, QCheckBox, QRadioButton, QLineEdit, QSpinBox, QComboBox, QPushButton, QGroupBox, QTabWidget::pane, QTextEdit {
+                color: #ffffff;
                 font-family: 'Segoe UI', sans-serif;
-                font-size: 11pt;
+                font-size: 12pt;
             }
             QLineEdit, QSpinBox, QComboBox, QTextEdit {
-                background-color: #3c3f41;
-                border: 1px solid #555555;
+                background-color: #2c2c2c;
+                border: 1px solid #444444;
+                padding: 4px;
+                border-radius: 4px;
+            }
+            QSpinBox::up-button, QSpinBox::down-button {
+                width: 20px;
             }
             QPushButton {
                 background-color: #3c3f41;
                 border: 1px solid #555555;
-                padding: 5px;
+                border-radius: 4px;
+                padding: 6px 10px;
+                font-weight: bold;
             }
             QPushButton:hover {
-                background-color: #505354;
+                background-color: #4a4d4f;
             }
             QGroupBox {
-                border: 1px solid #555555;
+                border: 1px solid #444444;
                 border-radius: 5px;
                 margin-top: 10px;
+                padding: 10px;
             }
             QGroupBox:title {
                 subcontrol-origin: margin;
                 subcontrol-position: top center;
-                background-color: transparent;
+                background-color: #1e1e1e;
                 padding: 0px 5px;
             }
-            QProgressBar {
-                border: 1px solid #555555;
-                border-radius: 5px;
-                text-align: center;
-                background-color: #3c3f41;
+            QTabBar::tab {
+                background: #2c2c2c;
+                border: 1px solid #444444;
+                padding: 8px 12px;
+                margin: 0 2px;
+                border-top-left-radius: 4px;
+                border-top-right-radius: 4px;
             }
-            QProgressBar::chunk {
-                background-color: #1f92ff;
-                width: 20px;
+            QTabBar::tab:selected {
+                background: #3c3f41;
+                border-bottom: 2px solid #1f92ff;
+            }
+            QTabWidget::pane {
+                border: 1px solid #444444;
+                border-radius: 4px;
+                margin-top: -1px;
+            }
+            QTextEdit {
+                border: 1px solid #444444;
+                border-radius: 4px;
+                background-color: #2c2c2c;
+                padding: 8px;
             }
         """)
 
@@ -93,11 +113,14 @@ class MainWindow(QtWidgets.QMainWindow):
         config_tab = QtWidgets.QWidget()
         self.tab_widget.addTab(config_tab, "Configuration")
         config_layout = QtWidgets.QVBoxLayout(config_tab)
+        config_layout.setSpacing(15)
+        config_layout.setContentsMargins(10, 10, 10, 10)
 
         form_group = QtWidgets.QGroupBox("Repository & Build Settings")
         config_layout.addWidget(form_group)
 
         self.form_layout = QtWidgets.QFormLayout(form_group)
+        self.form_layout.setLabelAlignment(QtCore.Qt.AlignRight)
 
         self.github_token_input = QtWidgets.QLineEdit()
         self.github_token_input.setEchoMode(QtWidgets.QLineEdit.Password)
@@ -161,19 +184,17 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Start button on config tab
         self.start_button = QtWidgets.QPushButton("Start")
-        config_layout.addWidget(self.start_button)
+        config_layout.addWidget(self.start_button, 0, QtCore.Qt.AlignRight)
 
         # Logs tab
         logs_tab = QtWidgets.QWidget()
         self.tab_widget.addTab(logs_tab, "Logs")
         logs_layout = QtWidgets.QVBoxLayout(logs_tab)
+        logs_layout.setContentsMargins(10, 10, 10, 10)
 
         self.log_output = QtWidgets.QTextEdit()
         self.log_output.setReadOnly(True)
         logs_layout.addWidget(self.log_output)
-
-        self.progress_bar = QtWidgets.QProgressBar()
-        logs_layout.addWidget(self.progress_bar)
 
         # Connect signals
         self.start_button.clicked.connect(self.start_process)
@@ -568,8 +589,6 @@ class MainWindow(QtWidgets.QMainWindow):
             workflow_run = runs[0]
             if workflow_run.status != "completed":
                 self.log(f"Workflow run {workflow_run.id} is in status '{workflow_run.status}'. Waiting for completion...", Fore.YELLOW)
-                elapsed = time.time() - start_time
-                self.progress_bar.setValue(int((elapsed / build_timeout) * 100))
                 time.sleep(poll_interval)
             else:
                 if workflow_run.conclusion == "success":
