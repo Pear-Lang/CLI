@@ -32,20 +32,20 @@ def run_command(command, cwd=None, capture_output=True, verbose=False, check=Tru
             stderr=subprocess.PIPE if capture_output else None,
             text=True
         )
-        if capture_output and verbose:
-            print(result.stdout)
-            if result.stderr:
-                print(result.stderr)
-        return result.stdout if capture_output else None
+        stdout = result.stdout if capture_output else None
+        stderr = result.stderr if capture_output else None
+        return result.returncode, stdout, stderr
     except subprocess.CalledProcessError as e:
+        stdout = e.stdout if capture_output else None
+        stderr = e.stderr if capture_output else None
         if capture_output:
-            print(f"Error executing: {command}\n{e.stderr}")
+            print(f"Error executing: {command}\n{stderr}")
         else:
             print(f"Error executing: {command}")
         if check:
             sys.exit(1)
         else:
-            return e.returncode, e.stderr
+            return e.returncode, stdout, stderr
 
 def install_python_packages(verbose=False):
     required_packages = ['PyGithub', 'requests']
@@ -125,7 +125,7 @@ def check_and_install_gh(verbose=False):
         run_command("gh --version", verbose=verbose)
         print("GitHub CLI (gh) is installed.")
         # Check if gh is authenticated
-        auth_status = run_command("gh auth status", capture_output=True, verbose=verbose)
+        _, auth_status, _ = run_command("gh auth status", capture_output=True, verbose=verbose)
         if "You are not logged into any GitHub hosts" in auth_status:
             print("GitHub CLI is not authenticated. Please authenticate.")
             run_command("gh auth login", capture_output=False, verbose=verbose)
@@ -172,7 +172,7 @@ def create_repo(repo_name, github_token, verbose=False):
         sys.exit(1)
 
 def upload_project(repo_name, github_token, verbose=False):
-    from github import Github, GithubException
+    from github import Github
 
     # Initialize Git repository if not already done
     if not os.path.isdir(".git"):
@@ -180,7 +180,7 @@ def upload_project(repo_name, github_token, verbose=False):
         run_command("git init", capture_output=False, verbose=verbose)
 
     # Set remote 'origin' if not already set
-    remotes = run_command("git remote", capture_output=True, verbose=verbose)
+    _, remotes, _ = run_command("git remote", capture_output=True, verbose=verbose)
     if "origin" not in remotes:
         github_username = get_github_username(github_token)
         remote_url = f"https://github.com/{github_username}/{repo_name}.git"
@@ -193,7 +193,7 @@ def upload_project(repo_name, github_token, verbose=False):
     print("Adding files to Git...")
     run_command("git add .", capture_output=False, verbose=verbose)
     commit_message = "Initial commit"
-    returncode, stderr = run_command(f'git commit -m "{commit_message}"', capture_output=True, verbose=verbose, check=False)
+    returncode, stdout, stderr = run_command(f'git commit -m "{commit_message}"', capture_output=True, verbose=verbose, check=False)
     if returncode != 0:
         if "nothing to commit" in stderr.lower():
             print("Nothing to commit. Skipping commit step.")
@@ -246,7 +246,7 @@ def trigger_build(repo_name, github_token, verbose=False):
     with open(dummy_file, "w") as f:
         f.write(f"Trigger build at {time.ctime()}\n")
     run_command(f"git add {dummy_file}", capture_output=False, verbose=verbose)
-    returncode, stderr = run_command('git commit -m "Trigger GitHub Actions build"', capture_output=True, verbose=verbose, check=False)
+    returncode, stdout, stderr = run_command('git commit -m "Trigger GitHub Actions build"', capture_output=True, verbose=verbose, check=False)
     if returncode != 0:
         if "nothing to commit" in stderr.lower():
             print("Nothing to commit. Skipping commit step.")
