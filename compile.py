@@ -193,7 +193,7 @@ def upload_project(repo_name, github_token, verbose=False):
     run_command(f'git commit -m "{commit_message}"', capture_output=False, verbose=verbose)
     print("Pushing files to GitHub...")
     run_command("git branch -M main", capture_output=False, verbose=verbose)
-    run_command("git push -u origin main", capture_output=False, verbose=verbose)
+    run_command("git push -u origin main -f", capture_output=False, verbose=verbose)
     print(f"Project successfully uploaded to repository '{repo_name}'.")
 
 def get_github_username(github_token):
@@ -235,7 +235,7 @@ def trigger_build(repo_name, github_token, verbose=False):
         f.write(f"Trigger build at {time.ctime()}\n")
     run_command(f"git add {dummy_file}", capture_output=False, verbose=verbose)
     run_command('git commit -m "Trigger GitHub Actions build"', capture_output=False, verbose=verbose)
-    run_command("git push", capture_output=False, verbose=verbose)
+    run_command("git push -f", capture_output=False, verbose=verbose)
     print("Dummy commit successfully pushed; GitHub Actions workflow should now be running.")
 
 def wait_for_workflow_completion(repo, github_token, build_timeout, poll_interval, verbose=False):
