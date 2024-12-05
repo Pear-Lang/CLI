@@ -212,49 +212,35 @@ def get_github_username(github_token):
     user = g.get_user()
     return user.login
 
-def add_github_actions_workflow(repo, workflow_content, verbose=False):
-    from github import GithubException
+def add_github_actions_workflow(workflow_content, verbose=False):
+    workflow_dir = os.path.join('.github', 'workflows')
+    os.makedirs(workflow_dir, exist_ok=True)
+    workflow_path = os.path.join(workflow_dir, 'build_ios.yml')
+    with open(workflow_path, 'w') as f:
+        f.write(workflow_content)
+    print("GitHub Actions workflow file successfully created locally.")
 
-    try:
-        repo.create_file(
-            ".github/workflows/build_ios.yml",
-            "Add GitHub Actions workflow for iOS build",
-            workflow_content
-        )
-        print("GitHub Actions workflow file successfully added.")
-    except GithubException as e:
-        if e.data['message'] == 'Invalid request.\n\n"sha" was not supplied.':
-            print("Workflow file already exists. Updating the existing file.")
-            contents = repo.get_contents(".github/workflows/build_ios.yml")
-            repo.update_file(
-                contents.path,
-                "Update GitHub Actions workflow for iOS build",
-                workflow_content,
-                contents.sha
-            )
-            print("GitHub Actions workflow file successfully updated.")
-        else:
-            print(f"Error adding the workflow file: {e.data['message']}")
-            sys.exit(1)
-
-def trigger_build(repo_name, github_token, verbose=False):
-    print("Triggering GitHub Actions workflow through a dummy commit...")
-    dummy_file = "trigger_build.txt"
-    with open(dummy_file, "w") as f:
-        f.write(f"Trigger build at {time.ctime()}\n")
-    run_command(f"git add {dummy_file}", capture_output=False, verbose=verbose)
-    returncode, stdout, stderr = run_command('git commit -m "Trigger GitHub Actions build"', capture_output=True, verbose=verbose, check=False)
+    # Add the workflow file to git and push
+    run_command(f"git add {workflow_path}", capture_output=False, verbose=verbose)
+    commit_message = "Add GitHub Actions workflow for iOS build"
+    returncode, stdout, stderr = run_command(f'git commit -m "{commit_message}"', capture_output=True, verbose=verbose, check=False)
     if returncode != 0:
         if stderr and "nothing to commit" in stderr.lower():
-            print("Nothing to commit. Skipping commit step.")
+            print("Workflow file already committed. Skipping commit step.")
         else:
             print(f"Error during git commit: {stderr}")
             sys.exit(1)
     else:
-        print("Commit created.")
+        print("Workflow commit created.")
 
-    run_command("git push -f", capture_output=False, verbose=verbose)
-    print("Dummy commit successfully pushed; GitHub Actions workflow should now be running.")
+    print("Pushing workflow to GitHub...")
+    run_command("git push", capture_output=False, verbose=verbose)
+    print("GitHub Actions workflow file successfully pushed to repository.")
+
+def trigger_build(repo_name, github_token, verbose=False):
+    print("Triggering GitHub Actions workflow...")
+    # Since the workflow is set to trigger on push and workflow_dispatch, no action is needed here.
+    print("Workflow should start automatically.")
 
 def wait_for_workflow_completion(repo, github_token, build_timeout, poll_interval, verbose=False):
     from github import Github
@@ -329,6 +315,9 @@ def get_workflow_yaml():
 
     on:
       workflow_dispatch:
+      push:
+        branches:
+          - main
 
     jobs:
       build-ios:
@@ -475,11 +464,11 @@ def main():
         else:
             print("Skipping project upload.")
 
-    if not args.skip_build:
-        # Add GitHub Actions Workflow
-        workflow_yaml = get_workflow_yaml()
-        add_github_actions_workflow(repo, workflow_yaml, verbose=args.verbose)
+    # Add GitHub Actions Workflow
+    workflow_yaml = get_workflow_yaml()
+    add_github_actions_workflow(workflow_yaml, verbose=args.verbose)
 
+    if not args.skip_build:
         # Trigger the Build
         trigger_build(repo_name, github_token, verbose=args.verbose)
 
