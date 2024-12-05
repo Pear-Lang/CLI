@@ -321,7 +321,7 @@ def get_workflow_yaml():
 
     jobs:
       build-ios:
-        name: 🎉 iOS Build
+        name: iOS Build
         runs-on: macos-latest
         steps:
           - uses: actions/checkout@v3
