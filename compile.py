@@ -7,17 +7,17 @@ import shutil
 import os
 import textwrap
 import requests
+import zipfile
+import io
 
 def print_ascii_art():
     print(r"""
-     __  __           _      _            _     _
-    |  \/  |         (_)    | |          | |   (_)
-    | \  / | __ _ ___ _  ___| | _____  __| |__  _ _ __
-    | |\/| |/ _` / __| |/ __| |/ / _ \/ _` '_ \| | '_ \
-    | |  | | (_| \__ \ | (__|   <  __/ (_| | | | | | | |
-    |_|  |_|\__,_|___/_|\___|_|\_\___|\__,_| |_|_|_| |_|
-
-                     Made by Julian
+      __  __           _        ____              _       _ _             
+    |  \/  | __ _  __| | ___  | __ ) _   _      | |_   _| (_) __ _ _ __  
+    | |\/| |/ _` |/ _` |/ _ \ |  _ \| | | |  _  | | | | | | |/ _` | '_ \ 
+    | |  | | (_| | (_| |  __/ | |_) | |_| | | |_| | |_| | | | (_| | | | |
+    |_|  |_|\__,_|\__,_|\___| |____/ \__, |  \___/ \__,_|_|_|\__,_|_| |_|
+                                      |___/                               
     """)
 
 def run_command(command, cwd=None, capture_output=False, verbose=True, check=True):
@@ -283,9 +283,13 @@ def wait_for_workflow_completion(repo, github_token, build_timeout, poll_interva
             if latest_run.status == "completed":
                 if latest_run.conclusion == "success":
                     print("GitHub Actions workflow completed successfully.")
+                    if verbose:
+                        download_and_display_workflow_logs(repository, latest_run.id, github_token)
                     return
                 else:
                     print(f"GitHub Actions workflow failed with conclusion: {latest_run.conclusion}")
+                    if verbose:
+                        download_and_display_workflow_logs(repository, latest_run.id, github_token)
                     sys.exit(1)
             else:
                 print("Workflow is still running... Waiting.")
@@ -295,6 +299,24 @@ def wait_for_workflow_completion(repo, github_token, build_timeout, poll_interva
             time.sleep(poll_interval)
     print("Timeout reached. The GitHub Actions workflow did not complete within the expected time.")
     sys.exit(1)
+
+def download_and_display_workflow_logs(repository, run_id, github_token):
+    print("Downloading workflow logs...")
+    logs_url = f"https://api.github.com/repos/{repository.full_name}/actions/runs/{run_id}/logs"
+    headers = {
+        "Authorization": f"token {github_token}",
+        "Accept": "application/vnd.github.v3+json"
+    }
+    response = requests.get(logs_url, headers=headers)
+    if response.status_code == 200:
+        with zipfile.ZipFile(io.BytesIO(response.content)) as thezip:
+            for zipinfo in thezip.infolist():
+                with thezip.open(zipinfo) as thefile:
+                    print(f"\n--- Log file: {zipinfo.filename} ---")
+                    log_content = thefile.read().decode('utf-8')
+                    print(log_content)
+    else:
+        print(f"Failed to download workflow logs: {response.status_code} - {response.text}")
 
 def download_ipa(repo, builds_dir, ipa_name, verbose=False):
     import requests
