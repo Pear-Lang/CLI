@@ -6,20 +6,21 @@ import argparse
 import shutil
 import os
 import textwrap
+import requests
 
 def print_ascii_art():
     print(r"""
-     __  __           _      _            _     _         
-    |  \/  |         (_)    | |          | |   (_)        
-    | \  / | __ _ ___ _  ___| | _____  __| |__  _ _ __    
-    | |\/| |/ _` / __| |/ __| |/ / _ \/ _` '_ \| | '_ \   
-    | |  | | (_| \__ \ | (__|   <  __/ (_| | | | | | | |  
-    |_|  |_|\__,_|___/_|\___|_|\_\___|\__,_| |_|_|_| |_|  
-    
+     __  __           _      _            _     _
+    |  \/  |         (_)    | |          | |   (_)
+    | \  / | __ _ ___ _  ___| | _____  __| |__  _ _ __
+    | |\/| |/ _` / __| |/ __| |/ / _ \/ _` '_ \| | '_ \
+    | |  | | (_| \__ \ | (__|   <  __/ (_| | | | | | | |
+    |_|  |_|\__,_|___/_|\___|_|\_\___|\__,_| |_|_|_| |_|
+
                      Made by Julian
     """)
 
-def run_command(command, cwd=None, capture_output=True, verbose=False, check=True):
+def run_command(command, cwd=None, capture_output=False, verbose=True, check=True):
     if verbose:
         print(f"Running command: {command}")
     try:
@@ -29,23 +30,21 @@ def run_command(command, cwd=None, capture_output=True, verbose=False, check=Tru
             shell=True,
             check=check,
             stdout=subprocess.PIPE if capture_output else None,
-            stderr=subprocess.PIPE if capture_output else None,
+            stderr=subprocess.STDOUT if capture_output else None,
             text=True
         )
-        stdout = result.stdout if capture_output else ''
-        stderr = result.stderr if capture_output else ''
-        return result.returncode, stdout, stderr
-    except subprocess.CalledProcessError as e:
-        stdout = e.stdout if capture_output else ''
-        stderr = e.stderr if capture_output else ''
         if capture_output:
-            print(f"Error executing: {command}\n{stderr}")
+            print(result.stdout)
+        return result.returncode, result.stdout, ''
+    except subprocess.CalledProcessError as e:
+        if capture_output:
+            print(f"Error executing: {command}\n{e.stdout}")
         else:
             print(f"Error executing: {command}")
         if check:
             sys.exit(1)
         else:
-            return e.returncode, stdout, stderr
+            return e.returncode, '', e.stdout
 
 def install_python_packages(verbose=False):
     required_packages = ['PyGithub', 'requests']
@@ -216,7 +215,7 @@ def add_github_actions_workflow(workflow_content, verbose=False):
     workflow_dir = os.path.join('.github', 'workflows')
     os.makedirs(workflow_dir, exist_ok=True)
     workflow_path = os.path.join(workflow_dir, 'build_ios.yml')
-    with open(workflow_path, 'w') as f:
+    with open(workflow_path, 'w', encoding='utf-8') as f:
         f.write(workflow_content)
     print("GitHub Actions workflow file successfully created locally.")
 
@@ -236,6 +235,28 @@ def add_github_actions_workflow(workflow_content, verbose=False):
     print("Pushing workflow to GitHub...")
     run_command("git push", capture_output=False, verbose=verbose)
     print("GitHub Actions workflow file successfully pushed to repository.")
+
+def set_workflow_permissions(repo_name, github_token, verbose=False):
+    print("Setting GitHub Actions permissions to 'Read and write'...")
+    owner = get_github_username(github_token)
+    url = f"https://api.github.com/repos/{owner}/{repo_name}/actions/permissions"
+    headers = {
+        "Authorization": f"token {github_token}",
+        "Accept": "application/vnd.github.v3+json"
+    }
+    data = {
+        "enabled": True,
+        "allowed_actions": "all",
+        "permissions": {
+            "contents": "write"
+        }
+    }
+    response = requests.put(url, headers=headers, json=data)
+    if response.status_code in [200, 204]:
+        print("GitHub Actions permissions successfully set to 'Read and write'.")
+    else:
+        print(f"Failed to set GitHub Actions permissions: {response.status_code} - {response.text}")
+        sys.exit(1)
 
 def trigger_build(repo_name, github_token, verbose=False):
     print("Triggering GitHub Actions workflow...")
@@ -275,7 +296,7 @@ def wait_for_workflow_completion(repo, github_token, build_timeout, poll_interva
     print("Timeout reached. The GitHub Actions workflow did not complete within the expected time.")
     sys.exit(1)
 
-def download_ipa(repo, builds_dir, verbose=False):
+def download_ipa(repo, builds_dir, ipa_name, verbose=False):
     import requests
 
     print("Fetching the latest release from the repository...")
@@ -296,7 +317,7 @@ def download_ipa(repo, builds_dir, verbose=False):
     download_url = ipa_asset.browser_download_url
     print(f"IPA download URL: {download_url}")
     os.makedirs(builds_dir, exist_ok=True)
-    ipa_path = os.path.join(builds_dir, ipa_asset.name)
+    ipa_path = os.path.join(builds_dir, ipa_name)
     print(f"Downloading the IPA file to '{ipa_path}'...")
     try:
         with requests.get(download_url, stream=True) as r:
@@ -309,15 +330,18 @@ def download_ipa(repo, builds_dir, verbose=False):
         print(f"Error downloading the IPA file: {e}")
         sys.exit(1)
 
-def get_workflow_yaml():
-    yaml_content = """
-    name: iOS-ipa-build
+def get_workflow_yaml(ipa_name):
+    yaml_content = f"""
+    name: iOS Build
 
     on:
       workflow_dispatch:
       push:
         branches:
           - main
+
+    permissions:
+      contents: write  # Grants read and write permissions to GITHUB_TOKEN
 
     jobs:
       build-ios:
@@ -331,7 +355,7 @@ def get_workflow_yaml():
               channel: 'stable'
               architecture: x64
           - run: flutter pub get
-          
+
 
           - run: pod repo update
             working-directory: ios
@@ -345,14 +369,14 @@ def get_workflow_yaml():
             working-directory: build/ios/iphoneos
 
           - name: Zip output
-            run: zip -qq -r -9 FlutterIpaExport.ipa Payload
+            run: zip -qq -r -9 {ipa_name} Payload
             working-directory: build/ios/iphoneos
 
           - name: Upload binaries to release
             uses: svenstaro/upload-release-action@v2
             with:
-              repo_token: ${{ secrets.GITHUB_TOKEN }}
-              file: build/ios/iphoneos/FlutterIpaExport.ipa
+              repo_token: ${{{{ secrets.GITHUB_TOKEN }}}}
+              file: build/ios/iphoneos/{ipa_name}
               tag: v1.0
               overwrite: true
               body: "This is first release"
@@ -387,21 +411,10 @@ def main():
         help='The name of the GitHub repository.'
     )
     parser.add_argument(
-        '--verbose', '-v',
-        action='store_true',
-        help='Enable verbose output.'
-    )
-    parser.add_argument(
-        '--build-timeout',
-        type=int,
-        default=30*60,
-        help='Build timeout in seconds (default: 1800).'
-    )
-    parser.add_argument(
-        '--poll-interval',
-        type=int,
-        default=30,
-        help='Polling interval in seconds (default: 30).'
+        '--ipa-name',
+        type=str,
+        default='FlutterIpaExport.ipa',
+        help='Name of the IPA file to be generated (default: "FlutterIpaExport.ipa").'
     )
     parser.add_argument(
         '--build-dir',
@@ -424,12 +437,30 @@ def main():
         action='store_true',
         help='Skip uploading the project to GitHub.'
     )
+    parser.add_argument(
+        '--build-timeout',
+        type=int,
+        default=30*60,
+        help='Build timeout in seconds (default: 1800).'
+    )
+    parser.add_argument(
+        '--poll-interval',
+        type=int,
+        default=30,
+        help='Polling interval in seconds (default: 30).'
+    )
+    parser.add_argument(
+        '--verbose', '-v',
+        action='store_true',
+        help='Enable verbose output.'
+    )
 
     args = parser.parse_args()
 
     BUILD_TIMEOUT = args.build_timeout
     POLL_INTERVAL = args.poll_interval
     BUILD_DIR = args.build_dir
+    IPA_NAME = args.ipa_name
 
     github_token = get_github_token(args)
 
@@ -443,6 +474,7 @@ def main():
 
     if action == "createrepo":
         repo = create_repo(repo_name, github_token, verbose=args.verbose)
+        set_workflow_permissions(repo_name, github_token, verbose=args.verbose)
         if not args.skip_upload:
             upload_project(repo_name, github_token, verbose=args.verbose)
         else:
@@ -456,6 +488,7 @@ def main():
         try:
             repo = g.get_repo(f"{user.login}/{repo_name}")
             print(f"Repository '{repo_name}' found.")
+            set_workflow_permissions(repo_name, github_token, verbose=args.verbose)
         except GithubException:
             print(f"Repository '{repo_name}' was not found. Please ensure the name is correct.")
             sys.exit(1)
@@ -465,7 +498,7 @@ def main():
             print("Skipping project upload.")
 
     # Add GitHub Actions Workflow
-    workflow_yaml = get_workflow_yaml()
+    workflow_yaml = get_workflow_yaml(IPA_NAME)
     add_github_actions_workflow(workflow_yaml, verbose=args.verbose)
 
     if not args.skip_build:
@@ -476,7 +509,7 @@ def main():
         wait_for_workflow_completion(repo, github_token, BUILD_TIMEOUT, POLL_INTERVAL, verbose=args.verbose)
 
         # Download the IPA
-        download_ipa(repo, BUILD_DIR, verbose=args.verbose)
+        download_ipa(repo, BUILD_DIR, IPA_NAME, verbose=args.verbose)
     else:
         print("Skipping build and download steps.")
 
