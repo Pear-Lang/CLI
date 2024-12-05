@@ -393,9 +393,6 @@ def get_workflow_yaml(ipa_name):
 
     on:
       workflow_dispatch:
-      push:
-        branches:
-          - main
 
     permissions:
       contents: write  # Grants read and write permissions to GITHUB_TOKEN
