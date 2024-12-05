@@ -2,3 +2,5 @@ PyGithub
 requests
 colorama
 termcolor
+PyQt5
+termcolor

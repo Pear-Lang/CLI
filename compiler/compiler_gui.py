@@ -216,6 +216,8 @@ class MainWindow(QtWidgets.QMainWindow):
     def start_process(self):
         # Disable the start button
         self.start_button.setEnabled(False)
+        # Switch to Logs tab automatically
+        self.tab_widget.setCurrentIndex(1)
         self.thread = threading.Thread(target=self.main_process)
         self.thread.start()
 
