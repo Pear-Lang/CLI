@@ -15,11 +15,11 @@ def print_ascii_art():
     | |\/| |/ _` / __| |/ __| |/ / _ \/ _` '_ \| | '_ \   
     | |  | | (_| \__ \ | (__|   <  __/ (_| | | | | | | |  
     |_|  |_|\__,_|___/_|\___|_|\_\___|\__,_| |_|_|_| |_|  
-                                                          
+    
                      Made by Julian
     """)
 
-def run_command(command, cwd=None, capture_output=True, verbose=False):
+def run_command(command, cwd=None, capture_output=True, verbose=False, check=True):
     if verbose:
         print(f"Running command: {command}")
     try:
@@ -27,7 +27,7 @@ def run_command(command, cwd=None, capture_output=True, verbose=False):
             command,
             cwd=cwd,
             shell=True,
-            check=True,
+            check=check,
             stdout=subprocess.PIPE if capture_output else None,
             stderr=subprocess.PIPE if capture_output else None,
             text=True
@@ -42,7 +42,10 @@ def run_command(command, cwd=None, capture_output=True, verbose=False):
             print(f"Error executing: {command}\n{e.stderr}")
         else:
             print(f"Error executing: {command}")
-        sys.exit(1)
+        if check:
+            sys.exit(1)
+        else:
+            return e.returncode, e.stderr
 
 def install_python_packages(verbose=False):
     required_packages = ['PyGithub', 'requests']
@@ -190,7 +193,16 @@ def upload_project(repo_name, github_token, verbose=False):
     print("Adding files to Git...")
     run_command("git add .", capture_output=False, verbose=verbose)
     commit_message = "Initial commit"
-    run_command(f'git commit -m "{commit_message}"', capture_output=False, verbose=verbose)
+    returncode, stderr = run_command(f'git commit -m "{commit_message}"', capture_output=True, verbose=verbose, check=False)
+    if returncode != 0:
+        if "nothing to commit" in stderr.lower():
+            print("Nothing to commit. Skipping commit step.")
+        else:
+            print(f"Error during git commit: {stderr}")
+            sys.exit(1)
+    else:
+        print("Commit created.")
+
     print("Pushing files to GitHub...")
     run_command("git branch -M main", capture_output=False, verbose=verbose)
     run_command("git push -u origin main -f", capture_output=False, verbose=verbose)
@@ -234,7 +246,16 @@ def trigger_build(repo_name, github_token, verbose=False):
     with open(dummy_file, "w") as f:
         f.write(f"Trigger build at {time.ctime()}\n")
     run_command(f"git add {dummy_file}", capture_output=False, verbose=verbose)
-    run_command('git commit -m "Trigger GitHub Actions build"', capture_output=False, verbose=verbose)
+    returncode, stderr = run_command('git commit -m "Trigger GitHub Actions build"', capture_output=True, verbose=verbose, check=False)
+    if returncode != 0:
+        if "nothing to commit" in stderr.lower():
+            print("Nothing to commit. Skipping commit step.")
+        else:
+            print(f"Error during git commit: {stderr}")
+            sys.exit(1)
+    else:
+        print("Commit created.")
+
     run_command("git push -f", capture_output=False, verbose=verbose)
     print("Dummy commit successfully pushed; GitHub Actions workflow should now be running.")
 
@@ -252,18 +273,21 @@ def wait_for_workflow_completion(repo, github_token, build_timeout, poll_interva
     print("Waiting for the GitHub Actions workflow to complete...")
     start_time = time.time()
     while time.time() - start_time < build_timeout:
-        runs = workflow.get_runs(status="in_progress")
-        if runs.totalCount == 0:
-            # Check for the latest run
-            latest_run = workflow.get_runs().reversed[0]
-            if latest_run.conclusion == "success":
-                print("GitHub Actions workflow completed successfully.")
-                return
-            elif latest_run.conclusion is not None:
-                print(f"GitHub Actions workflow failed with conclusion: {latest_run.conclusion}")
-                sys.exit(1)
+        runs = workflow.get_runs()
+        if runs.totalCount > 0:
+            latest_run = runs[0]
+            if latest_run.status == "completed":
+                if latest_run.conclusion == "success":
+                    print("GitHub Actions workflow completed successfully.")
+                    return
+                else:
+                    print(f"GitHub Actions workflow failed with conclusion: {latest_run.conclusion}")
+                    sys.exit(1)
+            else:
+                print("Workflow is still running... Waiting.")
+                time.sleep(poll_interval)
         else:
-            print("Workflow is still running... Waiting.")
+            print("No workflow runs found. Waiting.")
             time.sleep(poll_interval)
     print("Timeout reached. The GitHub Actions workflow did not complete within the expected time.")
     sys.exit(1)
