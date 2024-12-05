@@ -12,12 +12,14 @@ import io
 
 def print_ascii_art():
     print(r"""
-      __  __           _        ____              _       _ _             
-    |  \/  | __ _  __| | ___  | __ ) _   _      | |_   _| (_) __ _ _ __  
-    | |\/| |/ _` |/ _` |/ _ \ |  _ \| | | |  _  | | | | | | |/ _` | '_ \ 
-    | |  | | (_| | (_| |  __/ | |_) | |_| | | |_| | |_| | | | (_| | | | |
-    |_|  |_|\__,_|\__,_|\___| |____/ \__, |  \___/ \__,_|_|_|\__,_|_| |_|
-                                     |___/                               
+     __  __           _      _            _     _
+    |  \/  |         (_)    | |          | |   (_)
+    | \  / | __ _ ___ _  ___| | _____  __| |__  _ _ __
+    | |\/| |/ _` / __| |/ __| |/ / _ \/ _` '_ \| | '_ \
+    | |  | | (_| \__ \ | (__|   <  __/ (_| | | | | | | |
+    |_|  |_|\__,_|___/_|\___|_|\_\___|\__,_| |_|_|_| |_|
+
+                     Made by Julian
     """)
 
 def run_command(command, cwd=None, capture_output=False, verbose=True, check=True):
@@ -30,21 +32,22 @@ def run_command(command, cwd=None, capture_output=False, verbose=True, check=Tru
             shell=True,
             check=check,
             stdout=subprocess.PIPE if capture_output else None,
-            stderr=subprocess.STDOUT if capture_output else None,
+            stderr=subprocess.STDOUT,  # Combine stderr with stdout
             text=True
         )
-        if capture_output:
+        if capture_output and result.stdout:
             print(result.stdout)
-        return result.returncode, result.stdout, ''
+        return result.returncode, result.stdout or '', ''
     except subprocess.CalledProcessError as e:
-        if capture_output:
-            print(f"Error executing: {command}\n{e.stdout}")
+        output = e.stdout or ''
+        if capture_output and output:
+            print(f"Error executing: {command}\n{output}")
         else:
             print(f"Error executing: {command}")
         if check:
             sys.exit(1)
         else:
-            return e.returncode, '', e.stdout
+            return e.returncode, output, ''
 
 def install_python_packages(verbose=False):
     required_packages = ['PyGithub', 'requests']
@@ -189,12 +192,13 @@ def upload_project(repo_name, github_token, verbose=False):
     print("Adding files to Git...")
     run_command("git add .", capture_output=False, verbose=verbose)
     commit_message = "Initial commit"
-    returncode, stdout, stderr = run_command(f'git commit -m "{commit_message}"', capture_output=True, verbose=verbose, check=False)
+    returncode, stdout, _ = run_command(f'git commit -m "{commit_message}"', capture_output=True, verbose=verbose, check=False)
+    commit_output = stdout.lower() if stdout else ''
     if returncode != 0:
-        if stderr and "nothing to commit" in stderr.lower():
+        if "nothing to commit" in commit_output or "working tree clean" in commit_output:
             print("Nothing to commit. Skipping commit step.")
         else:
-            print(f"Error during git commit: {stderr}")
+            print(f"Error during git commit:\n{stdout}")
             sys.exit(1)
     else:
         print("Commit created.")
@@ -222,12 +226,13 @@ def add_github_actions_workflow(workflow_content, verbose=False):
     # Add the workflow file to git and push
     run_command(f"git add {workflow_path}", capture_output=False, verbose=verbose)
     commit_message = "Add GitHub Actions workflow for iOS build"
-    returncode, stdout, stderr = run_command(f'git commit -m "{commit_message}"', capture_output=True, verbose=verbose, check=False)
+    returncode, stdout, _ = run_command(f'git commit -m "{commit_message}"', capture_output=True, verbose=verbose, check=False)
+    commit_output = stdout.lower() if stdout else ''
     if returncode != 0:
-        if stderr and "nothing to commit" in stderr.lower():
+        if "nothing to commit" in commit_output or "working tree clean" in commit_output:
             print("Workflow file already committed. Skipping commit step.")
         else:
-            print(f"Error during git commit: {stderr}")
+            print(f"Error during git commit:\n{stdout}")
             sys.exit(1)
     else:
         print("Workflow commit created.")
@@ -235,6 +240,10 @@ def add_github_actions_workflow(workflow_content, verbose=False):
     print("Pushing workflow to GitHub...")
     run_command("git push", capture_output=False, verbose=verbose)
     print("GitHub Actions workflow file successfully pushed to repository.")
+
+    # Wait for GitHub to recognize the new workflow
+    print("Waiting for GitHub to recognize the workflow...")
+    time.sleep(20)  # Wait for 20 seconds
 
 def set_workflow_permissions(repo_name, github_token, verbose=False):
     print("Setting GitHub Actions permissions to 'Read and write'...")
@@ -258,10 +267,23 @@ def set_workflow_permissions(repo_name, github_token, verbose=False):
         print(f"Failed to set GitHub Actions permissions: {response.status_code} - {response.text}")
         sys.exit(1)
 
-def trigger_build(repo_name, github_token, verbose=False):
-    print("Triggering GitHub Actions workflow...")
-    # Since the workflow is set to trigger on push and workflow_dispatch, no action is needed here.
-    print("Workflow should start automatically.")
+def trigger_workflow_dispatch(repo_name, github_token, verbose=False):
+    print("Triggering GitHub Actions workflow via API...")
+    owner = get_github_username(github_token)
+    url = f"https://api.github.com/repos/{owner}/{repo_name}/actions/workflows/build_ios.yml/dispatches"
+    headers = {
+        "Authorization": f"token {github_token}",
+        "Accept": "application/vnd.github.v3+json"
+    }
+    data = {
+        "ref": "main"
+    }
+    response = requests.post(url, headers=headers, json=data)
+    if response.status_code in [204]:
+        print("Workflow dispatch event triggered successfully.")
+    else:
+        print(f"Failed to trigger workflow dispatch: {response.status_code} - {response.text}")
+        sys.exit(1)
 
 def wait_for_workflow_completion(repo, github_token, build_timeout, poll_interval, verbose=False):
     from github import Github
@@ -269,34 +291,47 @@ def wait_for_workflow_completion(repo, github_token, build_timeout, poll_interva
     g = Github(github_token)
     user = g.get_user()
     repository = g.get_repo(f"{user.login}/{repo.name}")
-    workflows = repository.get_workflows()
-    if workflows.totalCount == 0:
-        print("No workflows found.")
-        sys.exit(1)
-    workflow = workflows[0]
-    print("Waiting for the GitHub Actions workflow to complete...")
+    print("Waiting for the GitHub Actions workflow to start...")
     start_time = time.time()
+    workflow_run = None
     while time.time() - start_time < build_timeout:
-        runs = workflow.get_runs()
-        if runs.totalCount > 0:
-            latest_run = runs[0]
-            if latest_run.status == "completed":
-                if latest_run.conclusion == "success":
-                    print("GitHub Actions workflow completed successfully.")
-                    if verbose:
-                        download_and_display_workflow_logs(repository, latest_run.id, github_token)
-                    return
-                else:
-                    print(f"GitHub Actions workflow failed with conclusion: {latest_run.conclusion}")
-                    if verbose:
-                        download_and_display_workflow_logs(repository, latest_run.id, github_token)
-                    sys.exit(1)
-            else:
-                print("Workflow is still running... Waiting.")
-                time.sleep(poll_interval)
-        else:
-            print("No workflow runs found. Waiting.")
+        # Get the list of workflows
+        workflows = repository.get_workflows()
+        if workflows.totalCount == 0:
+            print("No workflows found in the repository yet. Waiting...")
             time.sleep(poll_interval)
+            continue
+
+        # Find the workflow by name
+        workflow = next((wf for wf in workflows if wf.name == "iOS Build"), None)
+        if not workflow:
+            print("Workflow 'iOS Build' not found. Waiting...")
+            time.sleep(poll_interval)
+            continue
+
+        # Get the runs for the workflow
+        runs = workflow.get_runs(branch="main")
+        if runs.totalCount == 0:
+            print("No workflow runs found. Waiting for the workflow to start...")
+            time.sleep(poll_interval)
+            continue
+
+        # Get the latest run
+        workflow_run = runs[0]
+        if workflow_run.status != "completed":
+            print(f"Workflow run {workflow_run.id} is in status '{workflow_run.status}'. Waiting for completion...")
+            time.sleep(poll_interval)
+        else:
+            if workflow_run.conclusion == "success":
+                print("GitHub Actions workflow completed successfully.")
+                if verbose:
+                    download_and_display_workflow_logs(repository, workflow_run.id, github_token)
+                return
+            else:
+                print(f"GitHub Actions workflow failed with conclusion: {workflow_run.conclusion}")
+                if verbose:
+                    download_and_display_workflow_logs(repository, workflow_run.id, github_token)
+                sys.exit(1)
     print("Timeout reached. The GitHub Actions workflow did not complete within the expected time.")
     sys.exit(1)
 
@@ -313,7 +348,7 @@ def download_and_display_workflow_logs(repository, run_id, github_token):
             for zipinfo in thezip.infolist():
                 with thezip.open(zipinfo) as thefile:
                     print(f"\n--- Log file: {zipinfo.filename} ---")
-                    log_content = thefile.read().decode('utf-8')
+                    log_content = thefile.read().decode('utf-8', errors='ignore')
                     print(log_content)
     else:
         print(f"Failed to download workflow logs: {response.status_code} - {response.text}")
@@ -377,7 +412,6 @@ def get_workflow_yaml(ipa_name):
               channel: 'stable'
               architecture: x64
           - run: flutter pub get
-
 
           - run: pod repo update
             working-directory: ios
@@ -525,7 +559,7 @@ def main():
 
     if not args.skip_build:
         # Trigger the Build
-        trigger_build(repo_name, github_token, verbose=args.verbose)
+        trigger_workflow_dispatch(repo_name, github_token, verbose=args.verbose)
 
         # Wait for Build Completion
         wait_for_workflow_completion(repo, github_token, BUILD_TIMEOUT, POLL_INTERVAL, verbose=args.verbose)
