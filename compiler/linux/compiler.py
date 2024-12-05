@@ -198,26 +198,26 @@ def create_repo(repo_name, github_token, verbose=False):
         print(Fore.RED + f"✘ Error creating the repository: {e.data['message']}")
         sys.exit(1)
 
-def upload_project(repo_name, github_token, verbose=False):
+def upload_project(repo_name, github_token, project_path, verbose=False):
     from github import Github
 
     # Initialize Git repository if not already done
-    if not os.path.isdir(".git"):
+    if not os.path.isdir(os.path.join(project_path, ".git")):
         print(Fore.YELLOW + "⚠️  Initializing Git repository...")
-        run_command("git init", verbose=verbose)
+        run_command("git init", cwd=project_path, verbose=verbose)
 
     # Set remote 'origin' to the correct URL
     github_username = get_github_username(github_token)
     remote_url = f"https://github.com/{github_username}/{repo_name}.git"
     print(Fore.YELLOW + f"⚠️  Setting remote 'origin' to {remote_url}")
-    run_command("git remote remove origin", verbose=verbose, check=False)
-    run_command(f"git remote add origin {remote_url}", verbose=verbose)
+    run_command("git remote remove origin", cwd=project_path, verbose=verbose, check=False)
+    run_command(f"git remote add origin {remote_url}", cwd=project_path, verbose=verbose)
 
     # Add files and push
     print(Fore.YELLOW + "⚠️  Adding files to Git...")
-    run_command("git add .", verbose=verbose)
+    run_command("git add .", cwd=project_path, verbose=verbose)
     commit_message = "Initial commit"
-    returncode, stdout, _ = run_command(f'git commit -m "{commit_message}"', verbose=verbose, check=False)
+    returncode, stdout, _ = run_command(f'git commit -m "{commit_message}"', cwd=project_path, verbose=verbose, check=False)
     commit_output = stdout.lower() if stdout else ''
     if returncode != 0:
         if "nothing to commit" in commit_output or "working tree clean" in commit_output:
@@ -229,8 +229,8 @@ def upload_project(repo_name, github_token, verbose=False):
         print(Fore.GREEN + "✔ Commit created.")
 
     print(Fore.YELLOW + "⚠️  Pushing files to GitHub...")
-    run_command("git branch -M main", verbose=verbose)
-    run_command("git push -u origin main -f", verbose=verbose)
+    run_command("git branch -M main", cwd=project_path, verbose=verbose)
+    run_command("git push -u origin main -f", cwd=project_path, verbose=verbose)
     print(Fore.GREEN + f"✔ Project successfully uploaded to repository '{repo_name}'.")
 
 def get_github_username(github_token):
@@ -240,8 +240,8 @@ def get_github_username(github_token):
     user = g.get_user()
     return user.login
 
-def add_github_actions_workflow(workflow_content, verbose=False):
-    workflow_dir = os.path.join('.github', 'workflows')
+def add_github_actions_workflow(workflow_content, project_path, verbose=False):
+    workflow_dir = os.path.join(project_path, '.github', 'workflows')
 
     # Remove existing workflow files
     if os.path.exists(workflow_dir):
@@ -260,9 +260,9 @@ def add_github_actions_workflow(workflow_content, verbose=False):
     print(Fore.GREEN + "✔ GitHub Actions workflow file successfully created locally.")
 
     # Add the workflow directory to git and push
-    run_command(f"git add {workflow_dir}", verbose=verbose)
+    run_command(f"git add {workflow_dir}", cwd=project_path, verbose=verbose)
     commit_message = "Update GitHub Actions workflow for iOS build"
-    returncode, stdout, _ = run_command(f'git commit -m "{commit_message}"', verbose=verbose, check=False)
+    returncode, stdout, _ = run_command(f'git commit -m "{commit_message}"', cwd=project_path, verbose=verbose, check=False)
     commit_output = stdout.lower() if stdout else ''
     if returncode != 0:
         if "nothing to commit" in commit_output or "working tree clean" in commit_output:
@@ -274,7 +274,7 @@ def add_github_actions_workflow(workflow_content, verbose=False):
         print(Fore.GREEN + "✔ Workflow commit created.")
 
     print(Fore.YELLOW + "⚠️  Pushing workflow to GitHub...")
-    run_command("git push", verbose=verbose)
+    run_command("git push", cwd=project_path, verbose=verbose)
     print(Fore.GREEN + "✔ GitHub Actions workflow file successfully pushed to repository.")
 
     # Wait for GitHub to recognize the new workflow
@@ -532,6 +532,12 @@ def main():
         help='Directory to store builds (default: "builds").'
     )
     parser.add_argument(
+        '--project-path', '-p',
+        type=str,
+        default='.',
+        help='Path to your Flutter project (default is the current directory).'
+    )
+    parser.add_argument(
         '--skip-dependencies',
         action='store_true',
         help='Skip checking and installing dependencies.'
@@ -570,6 +576,7 @@ def main():
     POLL_INTERVAL = args.poll_interval
     BUILD_DIR = args.build_dir
     IPA_NAME = args.ipa_name
+    PROJECT_PATH = args.project_path
 
     github_token = get_github_token(args)
 
@@ -585,7 +592,7 @@ def main():
         repo = create_repo(repo_name, github_token, verbose=args.verbose)
         set_workflow_permissions(repo_name, github_token, verbose=args.verbose)
         if not args.skip_upload:
-            upload_project(repo_name, github_token, verbose=args.verbose)
+            upload_project(repo_name, github_token, project_path=PROJECT_PATH, verbose=args.verbose)
         else:
             print(Fore.YELLOW + "⚠️  Skipping project upload.")
     elif action == "repo":
@@ -603,13 +610,13 @@ def main():
             print(Fore.RED + f"✘ Repository '{repo_name}' was not found. Please ensure the name is correct.")
             sys.exit(1)
         if not args.skip_upload:
-            upload_project(repo_name, github_token, verbose=args.verbose)
+            upload_project(repo_name, github_token, project_path=PROJECT_PATH, verbose=args.verbose)
         else:
             print(Fore.YELLOW + "⚠️  Skipping project upload.")
 
     # Add GitHub Actions Workflow
     workflow_yaml = get_workflow_yaml(IPA_NAME)
-    add_github_actions_workflow(workflow_yaml, verbose=args.verbose)
+    add_github_actions_workflow(workflow_yaml, project_path=PROJECT_PATH, verbose=args.verbose)
 
     if not args.skip_build:
         # Trigger the Build
