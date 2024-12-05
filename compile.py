@@ -217,20 +217,31 @@ def get_github_username(github_token):
 
 def add_github_actions_workflow(workflow_content, verbose=False):
     workflow_dir = os.path.join('.github', 'workflows')
-    os.makedirs(workflow_dir, exist_ok=True)
+
+    # Remove existing workflow files
+    if os.path.exists(workflow_dir):
+        for filename in os.listdir(workflow_dir):
+            file_path = os.path.join(workflow_dir, filename)
+            if os.path.isfile(file_path):
+                os.remove(file_path)
+                if verbose:
+                    print(f"Removed old workflow file: {file_path}")
+    else:
+        os.makedirs(workflow_dir, exist_ok=True)
+
     workflow_path = os.path.join(workflow_dir, 'build_ios.yml')
     with open(workflow_path, 'w', encoding='utf-8') as f:
         f.write(workflow_content)
     print("GitHub Actions workflow file successfully created locally.")
 
-    # Add the workflow file to git and push
-    run_command(f"git add {workflow_path}", capture_output=False, verbose=verbose)
-    commit_message = "Add GitHub Actions workflow for iOS build"
+    # Add the workflow directory to git and push
+    run_command(f"git add {workflow_dir}", capture_output=False, verbose=verbose)
+    commit_message = "Update GitHub Actions workflow for iOS build"
     returncode, stdout, _ = run_command(f'git commit -m "{commit_message}"', capture_output=True, verbose=verbose, check=False)
     commit_output = stdout.lower() if stdout else ''
     if returncode != 0:
         if "nothing to commit" in commit_output or "working tree clean" in commit_output:
-            print("Workflow file already committed. Skipping commit step.")
+            print("Workflow file already committed or no changes. Skipping commit step.")
         else:
             print(f"Error during git commit:\n{stdout}")
             sys.exit(1)
